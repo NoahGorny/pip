@@ -58,6 +58,8 @@ SUPPORTED_OPTIONS = [
     cmdoptions.extra_index_url,
     cmdoptions.no_index,
     cmdoptions.constraints,
+    cmdoptions.use_pep517,
+    cmdoptions.no_use_pep517,
     cmdoptions.requirements,
     cmdoptions.editable,
     cmdoptions.find_links,
@@ -88,6 +90,7 @@ class ParsedRequirement(object):
         is_editable,  # type: bool
         comes_from,  # type: str
         constraint,  # type: bool
+        use_pep517,  # type: bool
         options=None,  # type: Optional[Dict[str, Any]]
         line_source=None,  # type: Optional[str]
     ):
@@ -98,6 +101,7 @@ class ParsedRequirement(object):
         self.options = options
         self.constraint = constraint
         self.line_source = line_source
+        self.use_pep517 = use_pep517
 
 
 class ParsedLine(object):
@@ -178,6 +182,11 @@ def handle_requirement_line(
 ):
     # type: (...) -> ParsedRequirement
 
+    if options and options.use_pep517 is not None:
+        use_pep517 = options.use_pep517
+    else:
+        use_pep517 = None
+
     # preserve for the nested code path
     line_comes_from = '{} {} (line {})'.format(
         '-c' if line.constraint else '-r', line.filename, line.lineno,
@@ -193,6 +202,7 @@ def handle_requirement_line(
             is_editable=line.is_editable,
             comes_from=line_comes_from,
             constraint=line.constraint,
+            use_pep517=use_pep517,
         )
     else:
         if options:
@@ -211,6 +221,7 @@ def handle_requirement_line(
             is_editable=line.is_editable,
             comes_from=line_comes_from,
             constraint=line.constraint,
+            use_pep517=use_pep517,
             options=req_options,
             line_source=line_source,
         )

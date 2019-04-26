@@ -268,7 +268,37 @@ class TestProcessLine(object):
         filename = 'filename'
         comes_from = '-r {} (line {})'.format(filename, 1)
         req = install_req_from_editable(url, comes_from=comes_from)
-        assert repr(line_processor(line, filename, 1)[0]) == repr(req)
+        actual, = line_processor(line, filename, 1)
+        assert repr(actual) == repr(req)
+        assert actual.use_pep517 is None
+
+    @pytest.mark.parametrize('use_pep517, line, expected', [
+        # Test passing use_pep517=None.
+        (None, 'docopt', None),
+        (None, 'docopt --use-pep517 ', True),
+        (None, 'docopt --no-use-pep517 ', False),
+        # Test passing use_pep517=True.
+        (True, 'docopt', True),
+        (True, 'docopt --use-pep517', True),
+        (True, 'docopt --no-use-pep517', False),
+        # Test passing use_pep517=False.
+        (False, 'docopt', False),
+        (False, 'docopt --use-pep517', True),
+        (False, 'docopt --no-use-pep517', False),
+    ])
+    def test_yield_editable_requirement_pep517_options(
+        self, line_processor, options, use_pep517, line, expected,
+    ):
+        """
+        Test --use-pep517 and --no-use-pep517 in a requirements file line.
+        """
+        options.use_pep517 = use_pep517
+        actual, = line_processor(line, 'filename', 1, options=options)
+        assert repr(actual) == (
+            '<InstallRequirement object: docopt '
+            '(from -r filename (line 1)) editable=False>'
+        )
+        assert actual.use_pep517 == expected
 
     def test_yield_editable_constraint(self, line_processor):
         url = 'git+https://url#egg=SomeProject'

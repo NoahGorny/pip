@@ -460,6 +460,10 @@ def install_req_from_parsed_requirement(
     use_pep517=None,  # type: Optional[bool]
     user_supplied=False,  # type: bool
 ):
+    if parsed_req.use_pep517 is not None:
+        # Then the requirements line value takes precedence.
+        use_pep517 = parsed_req.use_pep517
+
     # type: (...) -> InstallRequirement
     if parsed_req.is_editable:
         req = install_req_from_editable(
