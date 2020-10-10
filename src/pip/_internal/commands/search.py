@@ -71,14 +71,18 @@ class SearchCommand(Command, SessionCommandMixin):
             return SUCCESS
         return NO_MATCHES_FOUND
 
-    def search(self, query, options):
-        # type: (List[str], Values) -> List[Dict[str, str]]
+    def get_pypi(self, options):
+        # type: (Values) -> xmlrpc_client.ServerProxy
         index_url = options.index
 
         session = self.get_default_session(options)
 
         transport = PipXmlrpcTransport(index_url, session)
-        pypi = xmlrpc_client.ServerProxy(index_url, transport)
+        return xmlrpc_client.ServerProxy(index_url, transport)
+
+    def search(self, query, options):
+        # type: (List[str], Values) -> List[Dict[str, str]]
+        pypi = self.get_pypi(options)
         hits = pypi.search({'name': query, 'summary': query}, 'or')
         return hits
 
