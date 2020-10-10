@@ -174,6 +174,85 @@ def test_latest_prerelease_install_message(caplog, monkeypatch):
     assert get_dist.calls == [pretend.call('ni')]
 
 
+@pytest.mark.network
+def test_list_all_versions_basic_search(script):
+    """
+    End to end test of --list-all-versions search command.
+
+    """
+    output = script.pip('search', 'pip', '--list-all-versions')
+    assert 'Available versions:' in output.stdout
+    assert (
+        '20.2.3, 20.2.2, 20.2.1, 20.2, 20.2b1, 20.1.1, 20.1, 20.1b1, 20.0.2'
+        ', 20.0.1, 20.0, 19.3.1, 19.3, 19.2.3, 19.2.2, 19.2.1, 19.2, 19.1.1'
+        ', 19.1, 19.0.3, 19.0.2, 19.0.1, 19.0, 18.1, 18.0, 10.0.1, 10.0.0, '
+        '10.0.0b2, 10.0.0b1, 9.0.3, 9.0.2, 9.0.1, 9.0.0, 8.1.2, 8.1.1, '
+        '8.1.0, 8.0.3, 8.0.2, 8.0.1, 8.0.0, 7.1.2, 7.1.1, 7.1.0, 7.0.3, '
+        '7.0.2, 7.0.1, 7.0.0, 6.1.1, 6.1.0, 6.0.8, 6.0.7, 6.0.6, 6.0.5, '
+        '6.0.4, 6.0.3, 6.0.2, 6.0.1, 6.0, 1.5.6, 1.5.5, 1.5.4, 1.5.3, '
+        '1.5.2, 1.5.1, 1.5, 1.4.1, 1.4, 1.3.1, 1.3, 1.2.1, 1.2, 1.1, 1.0.2,'
+        ' 1.0.1, 1.0, 0.8.3, 0.8.2, 0.8.1, 0.8, 0.7.2, 0.7.1, 0.7, 0.6.3, '
+        '0.6.2, 0.6.1, 0.6, 0.5.1, 0.5, 0.4, 0.3.1, '
+        '0.3, 0.2.1, 0.2' in output.stdout
+    )
+
+
+@pytest.mark.network
+def test_list_all_versions_returns_no_matches_found_when_name_not_exact():
+    """
+    Test that when searching with --list-all-versions,
+    non exact name do not match
+    """
+    command = create_command('search')
+    cmdline = "--index=https://pypi.org/pypi pand --list-all-versions"
+    with command.main_context():
+        options, args = command.parse_args(cmdline.split())
+        status = command.run(options, args)
+    assert status == NO_MATCHES_FOUND
+
+
+@pytest.mark.network
+def test_list_all_versions_returns_matches_found_when_name_is_exact():
+    """
+    Test that when searching with --list-all-versions, only exact name matches
+    """
+    command = create_command('search')
+    cmdline = "--index=https://pypi.org/pypi pandas --list-all-versions"
+    with command.main_context():
+        options, args = command.parse_args(cmdline.split())
+        status = command.run(options, args)
+    assert status == SUCCESS
+
+
+def test_search_print_results_list_all_versions(caplog):
+    """
+    Test that printed version search results are printed correctly
+    """
+    hits = [
+        {
+            'name': 'testlib1',
+            'summary': 'Test library 1.',
+            'versions': ['1.0.5', '1.0.3', '1.0.2-dev']
+        },
+        {
+            'name': 'testlib2',
+            'summary': 'Test library 2.',
+            'versions': ['2.0.1', '2.0.3']
+        }
+    ]
+
+    with caplog.at_level(logging.INFO):
+        print_results(hits, list_all_versions=True)
+
+    log_messages = [r.getMessage() for r in caplog.records]
+    assert log_messages[0].startswith('testlib1 (1.0.5)')
+    assert log_messages[1].startswith(
+        'Available versions: 1.0.5, 1.0.3, 1.0.2-dev')
+    assert log_messages[2].startswith('testlib2 (2.0.3)')
+    assert log_messages[3].startswith(
+        'Available versions: 2.0.3, 2.0.1')
+
+
 def test_search_print_results_should_contain_latest_versions(caplog):
     """
     Test that printed search results contain the latest package versions
