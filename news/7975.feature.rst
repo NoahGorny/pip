@@ -1,0 +1,2 @@
+Add --list-all-versions flag to pip search, allowing it to list all available
+versions to a specific package.
