@@ -6,6 +6,7 @@ import textwrap
 from collections import OrderedDict
 
 from pip._vendor import pkg_resources
+from pip._vendor.packaging.utils import canonicalize_name
 from pip._vendor.packaging.version import parse as parse_version
 
 # NOTE: XMLRPC Client is not annotated in typeshed as on 2017-07-17, which is
@@ -25,7 +26,7 @@ from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 
 if MYPY_CHECK_RUNNING:
     from optparse import Values
-    from typing import Dict, List, Optional
+    from typing import Dict, Iterable, List, Optional
 
     from typing_extensions import TypedDict
     TransformedHit = TypedDict(
@@ -52,21 +53,55 @@ class SearchCommand(Command, SessionCommandMixin):
             default=PyPI.pypi_url,
             help='Base URL of Python Package Index (default %default)')
 
+        self.cmd_opts.add_option(
+            '-l', '--list-all-versions',
+            dest='list_all_versions',
+            action='store_true',
+            default=False,
+            help='List all available versions of the specific package name')
+
         self.parser.insert_option_group(0, self.cmd_opts)
+
+    def get_all_package_versions(self, query, options):
+        # type: (List[str], Values) -> List[Dict[str, str]]
+        pypi = self.get_pypi(options)
+
+        canonized_query = [canonicalize_name(q) for q in query]
+
+        result_hits = []
+        for q in canonized_query:
+            versions = pypi.package_releases(q, True)
+            if not versions:
+                continue
+
+            latest = highest_version(versions)
+            hit = pypi.release_data(q, latest)
+            for version in versions:
+                result_hits.append(
+                    {'name': hit['name'],
+                     'summary': hit['summary'],
+                     'version': version}
+                )
+        return result_hits
 
     def run(self, options, args):
         # type: (Values, List[str]) -> int
         if not args:
             raise CommandError('Missing required argument (search query).')
         query = args
-        pypi_hits = self.search(query, options)
+        if options.list_all_versions:
+            pypi_hits = self.get_all_package_versions(query, options)
+        else:
+            pypi_hits = self.search(query, options)
+
         hits = transform_hits(pypi_hits)
 
         terminal_width = None
         if sys.stdout.isatty():
             terminal_width = get_terminal_size()[0]
 
-        print_results(hits, terminal_width=terminal_width)
+        print_results(
+            hits, options.list_all_versions, terminal_width=terminal_width)
         if pypi_hits:
             return SUCCESS
         return NO_MATCHES_FOUND
@@ -116,8 +151,13 @@ def transform_hits(hits):
     return list(packages.values())
 
 
-def print_results(hits, name_column_width=None, terminal_width=None):
-    # type: (List[TransformedHit], Optional[int], Optional[int]) -> None
+def print_results(
+    hits,  # type: List[TransformedHit]
+    list_all_versions=False,  # type: Optional[bool]
+    name_column_width=None,  # type: Optional[int]
+    terminal_width=None  # type: Optional[int]
+):
+    # type: (...) -> None
     if not hits:
         return
     if name_column_width is None:
@@ -130,7 +170,8 @@ def print_results(hits, name_column_width=None, terminal_width=None):
     for hit in hits:
         name = hit['name']
         summary = hit['summary'] or ''
-        latest = highest_version(hit.get('versions', ['-']))
+        versions = hit.get('versions', ['-'])
+        latest = highest_version(versions)
         if terminal_width is not None:
             target_width = terminal_width - name_column_width - 5
             if target_width > 10:
@@ -144,6 +185,9 @@ def print_results(hits, name_column_width=None, terminal_width=None):
             **locals())
         try:
             write_output(line)
+            if list_all_versions:
+                write_output('Available versions: {}'.format(
+                    _format_versions(versions)))
             if name in installed_packages:
                 dist = get_distribution(name)
                 assert dist is not None
@@ -159,6 +203,15 @@ def print_results(hits, name_column_width=None, terminal_width=None):
                             write_output('LATEST:    %s', latest)
         except UnicodeEncodeError:
             pass
+
+
+def _format_versions(versions):
+    # type: (Iterable[str]) -> str
+    return ", ".join(sorted(
+        {c for c in versions},
+        key=parse_version,
+        reverse=True,
+    )) or "none"
 
 
 def highest_version(versions):
