@@ -1,23 +1,26 @@
 from __future__ import absolute_import
 
+import json
 import logging
 import sys
 import textwrap
 from collections import OrderedDict
 
-from pip._vendor import pkg_resources
+from pip._vendor import pkg_resources, requests
 from pip._vendor.packaging.utils import canonicalize_name
 from pip._vendor.packaging.version import parse as parse_version
 
 # NOTE: XMLRPC Client is not annotated in typeshed as on 2017-07-17, which is
 #       why we ignore the type on this import
 from pip._vendor.six.moves import xmlrpc_client  # type: ignore
+from pip._vendor.six.moves.urllib import parse as urllib_parse
 
 from pip._internal.cli.base_command import Command
 from pip._internal.cli.req_command import SessionCommandMixin
 from pip._internal.cli.status_codes import NO_MATCHES_FOUND, SUCCESS
-from pip._internal.exceptions import CommandError
+from pip._internal.exceptions import CommandError, NetworkConnectionError
 from pip._internal.models.index import PyPI
+from pip._internal.network.utils import raise_for_status
 from pip._internal.network.xmlrpc import PipXmlrpcTransport
 from pip._internal.utils.compat import get_terminal_size
 from pip._internal.utils.logging import indent_log
@@ -64,22 +67,31 @@ class SearchCommand(Command, SessionCommandMixin):
 
     def get_all_package_versions(self, query, options):
         # type: (List[str], Values) -> List[Dict[str, str]]
-        pypi = self.get_pypi(options)
-
         canonized_query = [canonicalize_name(q) for q in query]
 
-        result_hits = []
+        result_hits = []  # type: List[Dict[str, str]]
         for q in canonized_query:
-            versions = pypi.package_releases(q, True)
-            if not versions:
-                continue
+            try:
+                package_data = self.get_pypi_json(options, q)
+            except (requests.ConnectionError,
+                    requests.Timeout,
+                    NetworkConnectionError) as exc:
+                exc = str(exc)
+                if '404' in exc:
+                    err = 'Got 404 error, make sure the package name is valid.'
+                else:
+                    err = exc
+                logger.error(
+                    'Failed to fetch data of package "%s": %s', q, err)
+                return result_hits
 
-            latest = highest_version(versions)
-            hit = pypi.release_data(q, latest)
+            versions = package_data.get('releases', {})  # type: Dict[str, str]
+
+            info = package_data.get('info', {})  # type: Dict[str, str]
             for version in versions:
                 result_hits.append(
-                    {'name': hit['name'],
-                     'summary': hit['summary'],
+                    {'name': info.get('name', ''),
+                     'summary': info.get('summary', ''),
                      'version': version}
                 )
         return result_hits
@@ -114,6 +126,14 @@ class SearchCommand(Command, SessionCommandMixin):
 
         transport = PipXmlrpcTransport(index_url, session)
         return xmlrpc_client.ServerProxy(index_url, transport)
+
+    def get_pypi_json(self, options, query):
+        # type: (Values, str) -> Dict[str, Dict[str, str]]
+        resp = requests.get(
+                urllib_parse.urljoin(
+                    options.index, '{}/{}/{}'.format('pypi', query, 'json')))
+        raise_for_status(resp)
+        return json.loads(resp.content.decode('utf-8'))
 
     def search(self, query, options):
         # type: (List[str], Values) -> List[Dict[str, str]]
